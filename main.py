@@ -1,3 +1,4 @@
+"""--------------This code is not use anymore ------------------------"""
 from machine import Pin, I2C, Timer
 import neopixel
 from utime import sleep_ms
