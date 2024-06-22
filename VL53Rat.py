@@ -1,32 +1,16 @@
-from VL53L0X import VL53L0X
 from machine import Pin, Timer
 from utime import sleep_ms
 
 class VL53Rat:
-	def __init__(self, i2c, address, pin, limit, numSen):
-		self.numSen = numSen
-		self.i2c = i2c
-		self.address = address
+	def __init__(self, limit):
 		self.timer = Timer()
 		self.miliseg = 0
 		self.seg = 0
 		self.min = 0
-		self.distance = 0
 		self.hrs = 0
-		self.ind = None
 		self.limit = limit
-		self.xshut = Pin(pin, Pin.OUT, value = 0)
-		self.sensor = None
-	#end def
-	
-	def init(self):
-		self.xshut.value(1)
-		sleep_ms(1)
-		self.sensor = VL53L0X(self.i2c, self.address)
-		"""try:
-			self.sensor = VL53L0X(self.i2c, self.address)
-		except Exception as e:
-			print("Error initializing VL53L0X sensor:", e)"""
+		self.ind = None
+		#self.pin = Pin(pin,Pin.OUT,value=0)
 	#end def
 	
 	def counter(self, timer):
@@ -42,18 +26,16 @@ class VL53Rat:
 					self.min = 0
 	#end def
 	
-	def getDistance(self):
-		self.sensor.start()
-		self.distance = self.sensor.read()
-		self.sensor.stop()
-		#print(self.distance)
-		if self.distance < (self.limit*10) and self.ind != 'menor':
+	def checkDistance(self, distance):
+		if distance < self.limit and self.ind != 'menor':
 			self.timer.init(freq = 1000, mode = Timer.PERIODIC, callback = self.counter)
-			#print('hay presencia: '+str(self.distance))
+			#print('hay presencia: '+str(distance))
+			#self.pin.value(1)
 			self.ind = 'menor'
-		elif self.distance >= (self.limit*10) and self.ind != 'mayor':
+		elif distance >= self.limit and self.ind != 'mayor':
 			self.timer.deinit()
-			#print('no hay presencia: '+str(self.distance))
+			#self.pin.value(0)
+			#print('no hay presencia: '+str(distance))
 			self.ind = 'mayor'
 	#end def
 	
@@ -62,4 +44,6 @@ class VL53Rat:
 		self.miliseg, self.seg, self.min, self.hrs = 0, 0, 0, 0
 		return info
 	#end def
+
+
 

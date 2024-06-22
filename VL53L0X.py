@@ -1,8 +1,31 @@
 from micropython import const
 import ustruct
 import utime
-from machine import Timer
-import time
+from neopixel import NeoPixel
+from machine import Pin
+
+NeoP = Pin(17, Pin.OUT, value = 1)
+NeoD = NeoPixel(Pin(16), 1)
+
+def hsv2rgb(h, s, v):
+	if (s < 0) or (v < 0) or (h > 360) or (s > 1) or (v > 1):
+		return False
+	C = s * v
+	X = C * (1 - abs(h / 60.0 % 2 - 1))
+	m = v - C
+	if h < 60:
+		R, G, B = C, X, 0
+	elif h < 120:
+		R, G, B = X, C, 0
+	elif h < 180:
+		R, G, B = 0, C, X
+	elif h < 240:
+		R, G, B = 0, X, C
+	elif h < 300:
+		R, G, B = X, 0, C
+	else:
+		R, G, B = C, 0, X
+	return int((R + m) * 255), int((G + m) * 255), int((B + m) * 255)
 
 _IO_TIMEOUT = 1000
 _SYSRANGE_START = const(0x00)
@@ -109,13 +132,12 @@ class TimeoutError(RuntimeError):
     pass
 
 
-class VL53L0X:
-    def __init__(self, i2c, address):
+class VL53L0X():
+    def __init__(self, i2c, address=0x29):
         self.i2c = i2c
-        self.address = 0x29
-        self.init()
-        self.change_address(address)
         self.address = address
+        utime.sleep_ms(100) # give the I2C time to init
+        self.init()
         self._started = False
         self.measurement_timing_budget_us = 0
         self.set_measurement_timing_budget(self.measurement_timing_budget_us)
@@ -134,6 +156,12 @@ class VL53L0X:
                          "final_range_us": 0
                          }
         self.vcsel_period_type = ["VcselPeriodPreRange", "VcselPeriodFinalRange"]
+
+    def ping(self):
+        self.start()
+        distance = self.read()
+        self.stop()
+        return distance
 
     def _registers(self, register, values=None, struct='B'):
         if values is None:
@@ -348,6 +376,8 @@ class VL53L0X:
                 break
             utime.sleep_ms(1)
         else:
+            NeoD[0] = hsv2rgb(30, 1, 0.1)
+            NeoD.write()
             raise TimeoutError()
         self._config(
             (0x83, 0x01),
@@ -376,6 +406,9 @@ class VL53L0X:
                 break
             utime.sleep_ms(1)
         else:
+            NeoD[0] = hsv2rgb(70, 1, 0.1)
+            NeoD.write()
+            #print('Timeout en _calibrate')
             raise TimeoutError()
         self._register(_INTERRUPT_CLEAR, 0x01)
         self._register(_SYSRANGE_START, 0x00)
@@ -399,6 +432,7 @@ class VL53L0X:
         else:
             self._register(_SYSRANGE_START, 0x02)
         self._started = True
+        #print('Start')
 
     def stop(self):
         self._register(_SYSRANGE_START, 0x01)
@@ -410,6 +444,7 @@ class VL53L0X:
             (0xFF, 0x00),
         )
         self._started = False
+        #print('Stop')
 
     def read(self):
         if not self._started:
@@ -428,13 +463,19 @@ class VL53L0X:
                     break
                 utime.sleep_ms(1)
             else:
+                #print('timeout en read dentro del if')
+                NeoD[0] = hsv2rgb(180, 1, 0.1)
+                NeoD.write()
                 raise TimeoutError()
         for timeout in range(_IO_TIMEOUT):
             if self._register(_RESULT_INTERRUPT_STATUS) & 0x07:
                 break
             utime.sleep_ms(1)
-        else:
-            raise TimeoutError()
+        """else:
+            #print('timeout en read fuera del if')
+            NeoD[0] = hsv2rgb(280, 1, 0.1)
+            NeoD.write()
+            raise TimeoutError()"""
         value = self._register(_RESULT_RANGE_STATUS + 10, struct='>H')
         self._register(_INTERRUPT_CLEAR, 0x01)
         return value
@@ -484,7 +525,7 @@ class VL53L0X:
                 self._register(FINAL_RANGE_CONFIG_VALID_PHASE_HIGH, 0x10)
                 self._register(FINAL_RANGE_CONFIG_VALID_PHASE_LOW, 0x08)
                 self._register(GLOBAL_CONFIG_VCSEL_WIDTH, 0x02)
-                self._(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x0C)
+                self._register(ALGO_PHASECAL_CONFIG_TIMEOUT, 0x0C)
                 self._register(0xFF, 0x01)
                 self._register(ALGO_PHASECAL_LIM, 0x30)
                 self._register(0xFF, 0x00)
@@ -638,18 +679,20 @@ class VL53L0X:
         return True
 
     def perform_single_ref_calibration(self, vhv_init_byte):
-        chrono = Timer.Chrono()
+        
+        # Pico MicroPython doesn't have a Chrono class, so the line below is commented out
+        # chrono = Timer.Chrono()
+        
         self._register(SYSRANGE_START, 0x01|vhv_init_byte)
-        chrono.start()
+
+        # Instead of using the chrono class, I'll just capture the current time
+        chrono_start = utime.ticks_ms()
         while self._register((RESULT_INTERRUPT_STATUS & 0x07) == 0):
-            time_elapsed = chrono.read_ms()
+
+            # elapsed time is juse the current time minus the start time.
+            time_elapsed = utime.ticks_ms() - chrono_start
             if time_elapsed > _IO_TIMEOUT:
                 return False
         self._register(SYSTEM_INTERRUPT_CLEAR, 0x01)
         self._register(SYSRANGE_START, 0x00)
         return True
-    
-    def change_address(self, new_address):
-        self._register(0x8A, new_address & 0x7F)
-
-
